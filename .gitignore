@@ -1,0 +1,17 @@
+node_modules
+dist
+.DS_Store
+*.local
+.env
+.env.*
+coverage
+.vite
+*.tsbuildinfo
+
+# Research datasets stay on disk for local exploration and are not published.
+# Copy them into public/data only for a local dev server. Approve publication
+# before removing these rules.
+/theorykg.csv
+/practicekg.csv
+/public/data/theorykg.csv
+/public/data/practicekg.csv
