@@ -186,7 +186,7 @@ jobs:
 
 ### Research data is not in the public site
 
-`theorykg.csv` and `practicekg.csv` are research extracts. They are listed in `.gitignore`, including copies under `public/data/`, so they are not committed or deployed. The public app still loads them if you upload the files, and it loads them automatically in local development when the copies exist.
+`theorykg.csv` and `practicekg.csv` are research extracts. They are listed in `.gitignore`, including copies under `public/data/`, so they are not committed. The production build also deletes those two files from `dist/data` before the site is published. The public app still loads them if you upload the files, and it loads them automatically in local development when the copies exist.
 
 To publish those datasets later, remove the matching `.gitignore` lines, commit the files under `public/data/`, and push. Anyone who can open the site will be able to download them.
 
