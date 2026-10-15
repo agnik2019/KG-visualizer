@@ -357,7 +357,7 @@ export function Sidebar({
           </div>
           <label className="flex items-center gap-2 text-sm text-slate-200">
             <input type="checkbox" checked={showLabels} onChange={() => onShowLabels(!showLabels)} />
-            Show labels
+            Show entity names
           </label>
           <label className="flex items-center gap-2 text-sm text-slate-200">
             <input type="checkbox" checked={showRelationLabels} onChange={() => onShowRelationLabels(!showRelationLabels)} />

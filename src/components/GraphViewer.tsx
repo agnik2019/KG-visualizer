@@ -80,7 +80,9 @@ export const GraphViewer = forwardRef<GraphHandle, GraphViewerProps>(function Gr
   const onSelectLinkRef = useRef(onSelectLink)
   const onClearSelectionRef = useRef(onClearSelection)
   const fullLinksRef = useRef<GraphLink[]>([])
+  const nodesRef = useRef<GraphNode[]>([])
   const indexByIdRef = useRef(new Map<string, number>())
+  const userMovedRef = useRef(false)
   const tooltipRef = useRef<HTMLDivElement>(null)
   const pointerRef = useRef({ x: 16, y: 16 })
   const hoverClearRef = useRef<number>(0)
@@ -89,6 +91,7 @@ export const GraphViewer = forwardRef<GraphHandle, GraphViewerProps>(function Gr
   const [hoveredLinkId, setHoveredLinkId] = useState<string | null>(null)
   const zoomedNonce = useRef(0)
   fullLinksRef.current = links
+  nodesRef.current = nodes
 
   onSelectNodeRef.current = onSelectNode
   onSelectLinkRef.current = onSelectLink
@@ -117,6 +120,24 @@ export const GraphViewer = forwardRef<GraphHandle, GraphViewerProps>(function Gr
   useEffect(() => {
     if (prepared.config.points) setStableConfig(prepared.config)
   }, [prepared.config])
+
+  useEffect(() => {
+    userMovedRef.current = false
+    const fitLater = window.setTimeout(() => {
+      if (!userMovedRef.current) cosmographRef.current?.fitView(700, 0.22)
+    }, 1600)
+    return () => window.clearTimeout(fitLater)
+  }, [points, links])
+
+  useEffect(() => {
+    const parent = cosmographRef.current?.getCanvas()?.parentElement
+    if (!parent || mountedTick === 0) return
+    const observer = new ResizeObserver(() => {
+      if (!userMovedRef.current) cosmographRef.current?.fitView(400, 0.22)
+    })
+    observer.observe(parent)
+    return () => observer.disconnect()
+  }, [mountedTick, stableConfig])
 
   useEffect(() => {
     const map = new Map<string, number>()
@@ -257,15 +278,14 @@ export const GraphViewer = forwardRef<GraphHandle, GraphViewerProps>(function Gr
           curvedLinkSegments={8}
           curvedLinkWeight={LINK_CURVE.weight}
           curvedLinkControlPointDistance={LINK_CURVE.controlDistance}
-          pointSizeStrategy="preciseDegree"
-          pointSizeRange={[3, 16]}
+          pointSizeStrategy="degree"
+          pointSizeRange={[16, 42]}
+          pointDefaultSize={18}
           linkWidthStrategy="direct"
           pointColorByFn={colorFromColumn}
           linkColorByFn={colorFromColumn}
-          showTopLabels={showLabels}
-          showTopLabelsLimit={26}
-          showDynamicLabels={showDynamicLabels}
-          showDynamicLabelsLimit={16}
+          showTopLabels={false}
+          showDynamicLabels={false}
           pointLabelColor="#e2e8f0"
           pointLabelFn={truncateLabel}
           pointGreyoutOpacity={0.15}
@@ -274,9 +294,14 @@ export const GraphViewer = forwardRef<GraphHandle, GraphViewerProps>(function Gr
           hoveredPointRingColor="#ffffff"
           focusedPointRingColor="#ffffff"
           hoveredPointCursor="pointer"
-          fitViewOnInit
-          fitViewDelay={900}
-          fitViewPadding={0.16}
+          fitViewOnInit={false}
+          fitViewPadding={0.22}
+          onZoom={(_event, userDriven) => {
+            if (userDriven) userMovedRef.current = true
+          }}
+          onSimulationEnd={() => {
+            if (!userMovedRef.current) cosmographRef.current?.fitView(700, 0.22)
+          }}
           simulationGravity={layout.gravity}
           simulationRepulsion={layout.repulsion}
           simulationLinkSpring={layout.linkSpring}
@@ -301,12 +326,15 @@ export const GraphViewer = forwardRef<GraphHandle, GraphViewerProps>(function Gr
       <RelationLabelOverlay
         graphRef={cosmographRef}
         linksRef={fullLinksRef}
+        nodesRef={nodesRef}
         indexByIdRef={indexByIdRef}
-        enabled={showRelationLabels && links.length > 0 && Boolean(stableConfig)}
+        showRelations={showRelationLabels && links.length > 0 && Boolean(stableConfig)}
+        showEntities={(showLabels || showDynamicLabels) && nodes.length > 0 && Boolean(stableConfig)}
         selectedLinkId={selection?.kind === 'link' ? selection.id : null}
         selectedNodeId={selection?.kind === 'node' ? selection.id : null}
         hoveredLinkId={hoveredLinkId}
         onSelectLink={onSelectLink}
+        onSelectNode={onSelectNode}
         onHoverLink={(id) => {
           window.clearTimeout(hoverClearRef.current)
           setHoveredLinkId(id)

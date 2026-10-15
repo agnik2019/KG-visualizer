@@ -3,6 +3,7 @@ export const LINK_CURVE = { weight: 0.4, controlDistance: 0.5 }
 
 export const RELATION_LABEL_ALL_MAX = 90
 export const RELATION_LABEL_CAP = 72
+export const ENTITY_LABEL_ALL_MAX = 80
 
 export interface LabelCandidate {
   id: string
@@ -118,5 +119,40 @@ export function selectRelationLabels(
     const longest = [...visible].sort((a, b) => b.length - a.length).slice(0, 24)
     for (const candidate of longest) take(candidate.id)
   }
+  return chosen
+}
+
+export interface EntityCandidate {
+  id: string
+  x: number
+  y: number
+}
+
+/** Names for the head and tail of each visible relationship, and every entity on a small graph. */
+export function selectEntityLabels(
+  candidates: EntityCandidate[],
+  options: {
+    totalNodes: number
+    width: number
+    height: number
+    endpointIds: Iterable<string>
+    selectedId?: string | null
+  },
+): string[] {
+  const visible = candidates.filter(
+    (candidate) => candidate.x >= -80 && candidate.y >= -40 && candidate.x <= options.width + 80 && candidate.y <= options.height + 40,
+  )
+  if (options.totalNodes <= ENTITY_LABEL_ALL_MAX) return visible.map((candidate) => candidate.id)
+
+  const byId = new Map(visible.map((candidate) => [candidate.id, candidate]))
+  const chosen: string[] = []
+  const seen = new Set<string>()
+  const take = (id: string | null | undefined) => {
+    if (!id || seen.has(id) || !byId.has(id)) return
+    seen.add(id)
+    chosen.push(id)
+  }
+  take(options.selectedId)
+  for (const id of options.endpointIds) take(id)
   return chosen
 }

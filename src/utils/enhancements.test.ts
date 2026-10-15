@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { parseKnowledgeCsv } from './csvParser'
 import { highlightQuotes, parseContextCsv, resolveExtractionContext } from './context'
 import { viewPresetPatch } from './filterGraph'
-import { conicMidpoint, selectRelationLabels } from './linkLabels'
+import { conicMidpoint, selectEntityLabels, selectRelationLabels } from './linkLabels'
 import { buildGraph } from './graphTransformer'
 
 describe('six upload slots', () => {
@@ -148,6 +148,26 @@ describe('relation labels and view presets', () => {
     expect(selected).toContain('l0')
     expect(selected.length).toBeLessThanOrEqual(72)
     expect(selected.length).toBeGreaterThan(1)
+  })
+
+  it('labels both endpoints of a visible relationship on a large graph', () => {
+    const nodes = Array.from({ length: 200 }, (_, index) => ({ id: `n${index}`, x: 40 + index, y: 40 }))
+    const labeled = selectEntityLabels(nodes, {
+      totalNodes: nodes.length,
+      width: 900,
+      height: 700,
+      endpointIds: ['n3', 'n9'],
+      selectedId: 'n3',
+    })
+    expect(labeled).toEqual(['n3', 'n9'])
+    const small = selectEntityLabels(
+      [
+        { id: 'a', x: 10, y: 10 },
+        { id: 'b', x: 20, y: 20 },
+      ],
+      { totalNodes: 2, width: 400, height: 300, endpointIds: [] },
+    )
+    expect(small).toEqual(['a', 'b'])
   })
 
   it('builds original, reconciled, cross-graph, and within-graph views', () => {

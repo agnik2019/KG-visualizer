@@ -153,7 +153,7 @@ The generic **Upload CSV** control remains. Files dropped on the window still us
 
 ### Relation labels
 
-Labels use the `relation` value and sit on the curved edge. They follow the simulation, zoom, and pan. On graphs with more than 90 relationships, only a readable subset is drawn (the selection, its neighborhood, and the longest edges), with a note that labeling is adaptive. Parallel relationships keep separate labels. Clicking a label selects that relationship.
+Entity names sit on the nodes, and labels use the `relation` value along the curved edge, so each triple reads as head, relation, and tail. They follow the simulation, zoom, and pan. The view fits the graph again when the layout finishes, instead of staying zoomed into the middle of an edge. On graphs with more than 90 relationships, only a readable subset is drawn (the selection, its neighborhood, and the longest edges), with a note that labeling is adaptive. Parallel relationships keep separate labels. Clicking a label selects that relationship.
 
 ### Original context
 
