@@ -26,6 +26,9 @@ interface TopBarProps {
   onToggleLeft: () => void
   onToggleRight: () => void
   busy: boolean
+  showRelationLabels: boolean
+  onToggleRelationLabels: () => void
+  onOpenManager: () => void
 }
 
 export function TopBar({
@@ -45,6 +48,9 @@ export function TopBar({
   onToggleLeft,
   onToggleRight,
   busy,
+  showRelationLabels,
+  onToggleRelationLabels,
+  onOpenManager,
 }: TopBarProps) {
   const [exportOpen, setExportOpen] = useState(false)
   const exportRef = useRef<HTMLDivElement>(null)
@@ -93,6 +99,17 @@ export function TopBar({
         </button>
         <button type="button" className={iconButtonClass} onClick={onToggleRight} aria-pressed={rightOpen}>
           {rightOpen ? 'Hide details' : 'Show details'}
+        </button>
+        <button type="button" className={iconButtonClass} onClick={onOpenManager}>
+          Manage KG datasets
+        </button>
+        <button
+          type="button"
+          className={`${iconButtonClass} ${showRelationLabels ? 'border-violet-300/50 bg-violet-500/20' : ''}`}
+          aria-pressed={showRelationLabels}
+          onClick={onToggleRelationLabels}
+        >
+          Show relation labels
         </button>
         <FileUploader hint={uploadHint} onHintChange={onUploadHintChange} onFiles={onFiles} disabled={busy} />
         <button type="button" className={iconButtonClass} onClick={onResetView}>

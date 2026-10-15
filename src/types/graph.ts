@@ -65,6 +65,8 @@ export interface KnowledgeFile {
   source: 'preset' | 'upload'
   presetId?: 'theory' | 'practice' | 'sample'
   hint: FileHint
+  /** Set when the file was loaded through one of the six dedicated upload slots. */
+  slot?: Exclude<EdgeCategory, 'unknown'>
   triples: Triple[]
   warnings: string[]
 }

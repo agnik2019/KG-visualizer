@@ -34,6 +34,46 @@ export function defaultFilters(): Filters {
   }
 }
 
+export type ViewPreset = 'all' | 'original' | 'reconciled' | 'cross' | 'within'
+
+export function viewPresetPatch(preset: ViewPreset): Pick<Filters, 'categories' | 'showOriginal' | 'showNew' | 'showUnknown'> {
+  const categories: Filters['categories'] = {
+    'original-theory': false,
+    'original-practice': false,
+    'new-theory-practice': false,
+    'new-practice-theory': false,
+    'new-theory-theory': false,
+    'new-practice-practice': false,
+    unknown: false,
+  }
+  if (preset === 'all') {
+    for (const key of Object.keys(categories) as EdgeCategory[]) categories[key] = true
+    return { categories, showOriginal: true, showNew: true, showUnknown: true }
+  }
+  if (preset === 'original') {
+    categories['original-theory'] = true
+    categories['original-practice'] = true
+    return { categories, showOriginal: true, showNew: false, showUnknown: false }
+  }
+  if (preset === 'reconciled') {
+    categories['new-theory-practice'] = true
+    categories['new-practice-theory'] = true
+    categories['new-theory-theory'] = true
+    categories['new-practice-practice'] = true
+    return { categories, showOriginal: false, showNew: true, showUnknown: false }
+  }
+  if (preset === 'cross') {
+    categories['new-theory-practice'] = true
+    categories['new-practice-theory'] = true
+    return { categories, showOriginal: false, showNew: true, showUnknown: false }
+  }
+  categories['original-theory'] = true
+  categories['original-practice'] = true
+  categories['new-theory-theory'] = true
+  categories['new-practice-practice'] = true
+  return { categories, showOriginal: true, showNew: true, showUnknown: false }
+}
+
 export function defaultLayout() {
   return {
     gravity: 0.22,

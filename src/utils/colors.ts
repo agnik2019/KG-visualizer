@@ -212,6 +212,82 @@ export function classifyRelationship(input: ClassificationInput): Classification
   }
 }
 
+export interface SlotProfile {
+  category: Exclude<EdgeCategory, 'unknown'>
+  origin: 'original' | 'new'
+  headKg: 'theory' | 'practice'
+  tailKg: 'theory' | 'practice'
+}
+
+export const UPLOAD_SLOTS: SlotProfile[] = [
+  { category: 'original-theory', origin: 'original', headKg: 'theory', tailKg: 'theory' },
+  { category: 'original-practice', origin: 'original', headKg: 'practice', tailKg: 'practice' },
+  { category: 'new-theory-theory', origin: 'new', headKg: 'theory', tailKg: 'theory' },
+  { category: 'new-practice-practice', origin: 'new', headKg: 'practice', tailKg: 'practice' },
+  { category: 'new-theory-practice', origin: 'new', headKg: 'theory', tailKg: 'practice' },
+  { category: 'new-practice-theory', origin: 'new', headKg: 'practice', tailKg: 'theory' },
+]
+
+export function slotProfile(category: Exclude<EdgeCategory, 'unknown'>): SlotProfile {
+  const profile = UPLOAD_SLOTS.find((slot) => slot.category === category)
+  if (!profile) throw new Error(`No upload slot for ${category}`)
+  return profile
+}
+
+export function kgDisplay(kg: KgName): string {
+  if (kg === 'theory') return 'TheoryKG'
+  if (kg === 'practice') return 'PracticeKG'
+  return 'Unknown'
+}
+
+/**
+ * Reasons a CSV row disagrees with the upload slot the user chose.
+ * Empty provenance fields are not conflicts. A color override is not a conflict.
+ */
+export function slotConflictReasons(
+  row: { kgCategory?: string; headKg?: string; tailKg?: string; edgeOrigin?: string },
+  slot: SlotProfile,
+): string[] {
+  const reasons: string[] = []
+  const expected = CATEGORY_BY_ID[slot.category].label
+  if (row.kgCategory?.trim()) {
+    const parsed = normalizeCategoryLabel(row.kgCategory)
+    if (parsed !== slot.category) {
+      reasons.push(`kg_category is "${row.kgCategory.trim()}", which does not match ${expected}.`)
+    }
+  }
+  if (row.edgeOrigin?.trim()) {
+    const parsed = normalizeOrigin(row.edgeOrigin)
+    if (parsed !== slot.origin) {
+      reasons.push(`edge_origin is "${row.edgeOrigin.trim()}", which does not match ${slot.origin} relationships in this slot.`)
+    }
+  }
+  if (row.headKg?.trim()) {
+    const parsed = normalizeKg(row.headKg)
+    if (parsed !== slot.headKg) {
+      reasons.push(`head_kg is "${row.headKg.trim()}", which does not match ${kgDisplay(slot.headKg)}.`)
+    }
+  }
+  if (row.tailKg?.trim()) {
+    const parsed = normalizeKg(row.tailKg)
+    if (parsed !== slot.tailKg) {
+      reasons.push(`tail_kg is "${row.tailKg.trim()}", which does not match ${kgDisplay(slot.tailKg)}.`)
+    }
+  }
+  return reasons
+}
+
+export function classificationForSlot(slot: SlotProfile, colorCode?: string): Classification {
+  const override = normalizeHex(colorCode)
+  return {
+    category: slot.category,
+    color: override ?? CATEGORY_BY_ID[slot.category].color,
+    edgeOrigin: slot.origin,
+    headKg: slot.headKg,
+    tailKg: slot.tailKg,
+  }
+}
+
 export function nodeIdFor(label: string, kg: KgName): string {
   if (kg === 'theory') return `Theory::${label}`
   if (kg === 'practice') return `Practice::${label}`

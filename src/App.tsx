@@ -5,9 +5,11 @@ import { Sidebar, matchingNodes } from './components/Sidebar'
 import { DetailsPanel } from './components/DetailsPanel'
 import { GraphLegend } from './components/GraphLegend'
 import { GraphViewer, type GraphHandle } from './components/GraphViewer'
-import type { FileHint, Filters, KnowledgeFile, LayoutSettings, Selection } from './types/graph'
+import { DatasetManager, type PendingSlot } from './components/DatasetManager'
+import type { EdgeCategory, FileHint, Filters, KnowledgeFile, LayoutSettings, Selection } from './types/graph'
 import { inferFileHint } from './utils/colors'
-import { parseKnowledgeCsv } from './utils/csvParser'
+import { emptyContextIndex, parseContextCsv, type ContextIndex } from './utils/context'
+import { parseKnowledgeCsv, type ParseResult } from './utils/csvParser'
 import { buildGraph } from './utils/graphTransformer'
 import { applyFilters, datasetOptions, defaultDatasetId, defaultFilters, defaultLayout, focusIdsFor, selectDatasetTriples } from './utils/filterGraph'
 import { computeStats } from './utils/stats'
@@ -46,9 +48,15 @@ export default function App() {
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [leftOpen, setLeftOpen] = useState(() => window.innerWidth >= 900)
-  const [rightOpen, setRightOpen] = useState(() => window.innerWidth >= 1280)
+  const [rightOpen, setRightOpen] = useState(false)
   const [showLabels, setShowLabels] = useState(true)
   const [showDynamicLabels, setShowDynamicLabels] = useState(false)
+  const [showRelationLabels, setShowRelationLabels] = useState(true)
+  const [managerOpen, setManagerOpen] = useState(false)
+  const [pending, setPending] = useState<(PendingSlot & { text: string }) | null>(null)
+  const [sampleContext, setSampleContext] = useState<ContextIndex>(emptyContextIndex)
+  const [uploadedContext, setUploadedContext] = useState<ContextIndex | null>(null)
+  const [sampleContextHidden, setSampleContextHidden] = useState(false)
 
   const pushNotice = useCallback((notice: Notice) => {
     setNotices((current) => [notice, ...current].slice(0, 4))
@@ -108,6 +116,96 @@ export default function App() {
   useEffect(() => {
     void loadPresets()
   }, [loadPresets])
+
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const response = await fetch(datasetUrl('sample-context.csv'))
+        if (!response.ok) return
+        const text = await response.text()
+        if (text.trimStart().startsWith('<')) return
+        const parsed = parseContextCsv(text, 'sample-context.csv')
+        if (cancelled || parsed.errors.length > 0) return
+        setSampleContext(parsed.index)
+      } catch {
+        // The sample context file is optional.
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const activeContext = uploadedContext ?? (sampleContextHidden ? emptyContextIndex() : sampleContext)
+
+  const commitSlot = useCallback(
+    (slot: Exclude<EdgeCategory, 'unknown'>, fileName: string, parsed: ParseResult) => {
+      const next: KnowledgeFile = {
+        id: `slot-${slot}`,
+        name: fileName,
+        source: 'upload',
+        hint: 'unspecified',
+        slot,
+        triples: parsed.triples,
+        warnings: parsed.warnings,
+      }
+      setFiles((current) => [...current.filter((file) => file.slot !== slot), next])
+      setDatasetId('all')
+      setSelection(null)
+      setPending(null)
+      pushNotice({
+        id: `slot-${slot}-${Date.now()}`,
+        tone: 'info',
+        text: `Loaded ${parsed.triples.length.toLocaleString()} ${fileName} triples into the selected category.`,
+      })
+      for (const warning of parsed.warnings) {
+        pushNotice({ id: `slot-warn-${warning}`, tone: 'warning', text: warning })
+      }
+    },
+    [pushNotice],
+  )
+
+  const ingestSlot = useCallback(
+    async (slot: Exclude<EdgeCategory, 'unknown'>, file: File, policy: 'hold' | 'apply-slot' = 'hold') => {
+      setBusy(true)
+      try {
+        const text = policy === 'apply-slot' && pending?.fileName === file.name ? pending.text : await file.text()
+        const parsed = parseKnowledgeCsv(text, {
+          fileId: `slot-${slot}`,
+          fileName: file.name,
+          fileHint: 'unspecified',
+          slot,
+          slotConflictPolicy: policy,
+        })
+        if (parsed.errors.length > 0) {
+          pushNotice({ id: `slot-err-${file.name}`, tone: 'error', text: parsed.errors.join(' ') })
+          return
+        }
+        if (policy === 'hold' && parsed.conflicts.length > 0) {
+          setPending({
+            slot,
+            fileName: file.name,
+            text,
+            conflicts: parsed.conflicts,
+            matchingCount: parsed.triples.length,
+          })
+          setManagerOpen(true)
+          return
+        }
+        commitSlot(slot, file.name, parsed)
+      } catch (error) {
+        pushNotice({
+          id: `slot-read-${file.name}`,
+          tone: 'error',
+          text: error instanceof Error ? error.message : `Could not read ${file.name}.`,
+        })
+      } finally {
+        setBusy(false)
+      }
+    },
+    [commitSlot, pending, pushNotice],
+  )
 
   const ingestFiles = useCallback(
     async (selected: File[]) => {
@@ -180,7 +278,11 @@ export default function App() {
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setSelection(null)
+      if (event.key === 'Escape') {
+        setSelection(null)
+        setRightOpen(false)
+        setManagerOpen(false)
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -256,6 +358,7 @@ export default function App() {
         onFiles={(selected) => void ingestFiles(selected)}
         onResetView={() => {
           setSelection(null)
+          setRightOpen(false)
           graphRef.current?.resetView()
         }}
         onFit={() => graphRef.current?.fit()}
@@ -267,6 +370,9 @@ export default function App() {
         onToggleLeft={() => setLeftOpen((open) => !open)}
         onToggleRight={() => setRightOpen((open) => !open)}
         busy={busy || loading}
+        showRelationLabels={showRelationLabels}
+        onToggleRelationLabels={() => setShowRelationLabels((value) => !value)}
+        onOpenManager={() => setManagerOpen(true)}
       />
 
       {notices.length > 0 && (
@@ -306,6 +412,9 @@ export default function App() {
             showDynamicLabels={showDynamicLabels}
             onShowLabels={setShowLabels}
             onShowDynamicLabels={setShowDynamicLabels}
+            showRelationLabels={showRelationLabels}
+            onShowRelationLabels={setShowRelationLabels}
+            onOpenManager={() => setManagerOpen(true)}
             onPause={() => graphRef.current?.pause()}
             onResume={() => graphRef.current?.resume()}
             onReheat={() => graphRef.current?.reheat()}
@@ -342,6 +451,7 @@ export default function App() {
               layout={layout}
               showLabels={showLabels}
               showDynamicLabels={showDynamicLabels}
+              showRelationLabels={showRelationLabels}
               selection={selection}
               hop={filters.hop}
               focusNonce={focusNonce}
@@ -350,7 +460,10 @@ export default function App() {
                 setSelection({ kind: 'link', id })
                 setRightOpen(true)
               }}
-              onClearSelection={() => setSelection(null)}
+              onClearSelection={() => {
+                setSelection(null)
+                setRightOpen(false)
+              }}
             />
           )}
           {filtered.links.length > 0 && (
@@ -369,6 +482,7 @@ export default function App() {
             link={selectedLink}
             connected={connected}
             parallel={parallel}
+            contextIndex={activeContext}
             onSelectNode={selectNode}
             onSelectLink={(id) => {
               setSelection({ kind: 'link', id })
@@ -377,6 +491,69 @@ export default function App() {
           />
         )}
       </div>
+      {managerOpen && (
+        <DatasetManager
+          files={files}
+          contextFileName={activeContext.fileName}
+          contextCount={activeContext.count}
+          pending={pending}
+          onUploadSlot={(slot, file) => void ingestSlot(slot, file)}
+          onRemoveSlot={(slot) => {
+            setFiles((current) => current.filter((file) => file.slot !== slot))
+            setSelection(null)
+          }}
+          onUploadContext={(file) => {
+            void file.text().then((text) => {
+              const parsed = parseContextCsv(text, file.name)
+              if (parsed.errors.length > 0) {
+                pushNotice({ id: `ctx-${file.name}`, tone: 'error', text: parsed.errors.join(' ') })
+                return
+              }
+              setUploadedContext(parsed.index)
+              setSampleContextHidden(false)
+              for (const warning of parsed.warnings) pushNotice({ id: `ctx-warn-${warning}`, tone: 'warning', text: warning })
+              pushNotice({ id: `ctx-ok-${file.name}`, tone: 'info', text: `Loaded ${parsed.index.count.toLocaleString()} context passages from ${file.name}.` })
+            })
+          }}
+          onClearContext={() => {
+            if (uploadedContext) setUploadedContext(null)
+            else setSampleContextHidden(true)
+          }}
+          onClearUploads={() => {
+            setFiles((current) => current.filter((file) => file.source !== 'upload'))
+            setUploadedContext(null)
+            setPending(null)
+            setSelection(null)
+            setRightOpen(false)
+          }}
+          onResolve={(policy) => {
+            if (!pending || policy === 'cancel') {
+              setPending(null)
+              return
+            }
+            if (policy === 'matching-only') {
+              const parsed = parseKnowledgeCsv(pending.text, {
+                fileId: `slot-${pending.slot}`,
+                fileName: pending.fileName,
+                fileHint: 'unspecified',
+                slot: pending.slot,
+                slotConflictPolicy: 'hold',
+              })
+              commitSlot(pending.slot, pending.fileName, parsed)
+              return
+            }
+            const parsed = parseKnowledgeCsv(pending.text, {
+              fileId: `slot-${pending.slot}`,
+              fileName: pending.fileName,
+              fileHint: 'unspecified',
+              slot: pending.slot,
+              slotConflictPolicy: 'apply-slot',
+            })
+            commitSlot(pending.slot, pending.fileName, parsed)
+          }}
+          onClose={() => setManagerOpen(false)}
+        />
+      )}
     </div>
   )
 }

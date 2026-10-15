@@ -9,15 +9,21 @@ Interactive knowledge-graph explorer for TheoryKG, PracticeKG, and newly reconci
 ## Features
 
 - Full-screen dark graph with zoom, pan, node dragging, and animated layout
-- Directed edges, neighbor highlighting, and one-hop / two-hop isolation
+- Directed edges with relation names drawn along each edge, plus a **Show relation labels** toggle
+- Hover a relationship to see its endpoints, category, confidence, and a short evidence preview
+- Neighbor highlighting and one-hop / two-hop isolation
 - Presets for TheoryKG, PracticeKG, the combined graph, and a synthetic reconciled sample
+- Six dedicated upload slots, one for each relationship category, plus the original multi-file uploader
 - Local multi-file CSV upload, with hosted files loaded from `public/data` when they are present
 - Six relationship colors, plus an unclassified state when provenance is ambiguous
 - Explicit `color_code` / `color-code` overrides
 - Source-aware node identities (`Theory::Trust` stays distinct from `Practice::Trust`)
 - Parallel triples are kept as separate records and listed in the details panel
 - Search, relation filters, confidence threshold, and verification-status filter
-- Evidence, verdicts, and podcast or episode metadata when those fields exist
+- Evidence quotes highlighted inside the original extraction context when both are present
+- Optional context CSV (`context_unit_id` or `source_id`, plus `context_text`) for passages that are not stored on the triple
+- Verdicts, verification commentary, and podcast or episode metadata when those fields exist
+- Quick views: Show all, Original only, Reconciled only, Cross-KG only, and Within-KG only
 - Live statistics computed from the loaded graph
 - PNG export of the current view and CSV export of the filtered triples
 - Performance mode that keeps the highest-confidence subset of a large filtered graph
@@ -29,9 +35,9 @@ These counts come from the CSV files in this directory. They are not bundled int
 | Dataset | Triples | Notes |
 | --- | ---: | --- |
 | TheoryKG | 1,956 | 2,359 entities, 36 relations, 18 endpoint pairs with a parallel triple |
-| PracticeKG | 4 | 5 entities, 3 relations, podcast and verification-status fields |
+| PracticeKG | 12 | Podcast extracts with a `context` passage and `evidence_quote` on every row |
 
-TheoryKG has no empty required fields. PracticeKG has one empty `review_reason`. Extraction confidence ranges from 0.6 to 1.0 in TheoryKG and 0.7 to 0.9 in PracticeKG.
+TheoryKG has no empty required fields. Extraction confidence ranges from 0.6 to 1.0 in TheoryKG. PracticeKG stores the surrounding podcast passage in `context` and the supporting span in `evidence_quote`.
 
 ## Installation
 
@@ -79,7 +85,9 @@ Required columns:
 head, relation, tail
 ```
 
-Every other column is preserved and shown in the details panel when it has a value. Useful columns from the research extracts include `triple_id`, `paper_id`, `head_type`, `tail_type`, `evidence_ids`, `evidence_quotes`, `extraction_confidence`, `verdict`, `verdict_confidence`, `verification_explanation`, and, for PracticeKG, `verification_status`, `ep_title`, `pod_title`, `episode_id`, and `source_podcast_id`.
+Every other column is preserved and shown in the details panel when it has a value. Useful columns include `triple_id`, `paper_id`, `head_type`, `tail_type`, `evidence_ids`, `evidence_quotes` (or `evidence_quote`), `context`, `context_text`, `extraction_confidence`, `verdict`, `verdict_confidence`, `verification_explanation`, and podcast fields such as `pod_title`, `ep_title`, `episode_id`, `podcast_id`, and `context_id`.
+
+`context`, `context_text`, `source_text`, and `original_context` are shown as the original passage. Evidence quotes found inside that passage are highlighted. Verification fields stay in a separate commentary section. If a quote exists and the passage does not, the panel says the full original context is unavailable.
 
 Quoted commas, embedded line breaks, escaped quotes, Unicode, and missing cells are parsed with Papa Parse. Rows missing `head`, `relation`, or `tail` are skipped. A file missing those columns is rejected with an error and does not replace the current graph.
 
@@ -124,7 +132,32 @@ Classification rules:
 - A valid hex `color_code` overrides the palette color and does not change the category.
 - Anything still ambiguous stays unclassified.
 
-`public/data/sample-reconciled.csv` is synthetic and is safe to publish. It demonstrates all four new categories, a color override, parallel edges, and two unclassified rows.
+`public/data/sample-reconciled.csv` is synthetic and is safe to publish. It demonstrates all four new categories, a color override, parallel edges, two unclassified rows, and one passage with a highlighted evidence quote. `public/data/sample-context.csv` maps `CU_demo_5` to a longer passage for the practice-to-practice example.
+
+### Six upload slots
+
+**Manage KG datasets** provides one slot per category:
+
+| Slot | Category | Color |
+| --- | --- | --- |
+| 1 | Original TheoryKG | `#8B5CF6` |
+| 2 | Original PracticeKG | `#22C55E` |
+| 3 | New Theory → Theory | `#EF4444` |
+| 4 | New Practice → Practice | `#EC4899` |
+| 5 | New Theory → Practice | `#F59E0B` |
+| 6 | New Practice → Theory | `#06B6D4` |
+
+The slot sets `kg_category`, `edge_origin`, `head_kg`, `tail_kg`, and the default color. The filename is ignored. A valid `color_code` still overrides the color only. If a row already declares a different category, origin, or endpoint graph, the app stops and asks whether to use the slot category or load only the matching rows. It does not relabel those rows on its own.
+
+The generic **Upload CSV** control remains. Files dropped on the window still use filename hints and column provenance, and ambiguous rows stay unclassified.
+
+### Relation labels
+
+Labels use the `relation` value and sit on the curved edge. They follow the simulation, zoom, and pan. On graphs with more than 90 relationships, only a readable subset is drawn (the selection, its neighborhood, and the longest edges), with a note that labeling is adaptive. Parallel relationships keep separate labels. Clicking a label selects that relationship.
+
+### Original context
+
+Click a relationship to open the details panel. It shows the extracted triple, the original passage when a context column or a matching context CSV provides one, highlighted evidence, source metadata, and verification commentary. A short `text` note is not treated as the source passage unless the evidence quote appears inside it.
 
 ## Deployment
 
@@ -192,7 +225,8 @@ To publish those datasets later, remove the matching `.gitignore` lines, commit 
 
 ## Known limitations
 
-- Cosmograph draws parallel edges on top of each other. Every triple is still stored, and the details panel lists each one.
+- Cosmograph draws parallel edges on top of each other. Every triple is still stored, the details panel lists each one, and their relation labels are offset so the names stay readable.
+- Relation labels are an HTML overlay synchronized to Cosmograph’s point positions. Graphs larger than 90 relationships use adaptive labeling instead of drawing every name at once.
 - GitHub Pages cannot set cross-origin isolation headers. The app is built to run without those headers.
 - Very large uploads should use performance mode. It shows the highest-confidence relationships up to the chosen cap and leaves the rest available when the cap is turned off.
 - There is no backend, editing, or persistence beyond the browser session.

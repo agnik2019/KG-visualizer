@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react'
 import { Search, X } from 'lucide-react'
 import type { Filters, GraphLink, GraphNode, GraphStats, KnowledgeFile, LayoutSettings } from '../types/graph'
-import { CATEGORIES } from '../utils/colors'
+import { CATEGORIES, CATEGORY_BY_ID } from '../utils/colors'
+import { viewPresetPatch, type ViewPreset } from '../utils/filterGraph'
 import { GraphStatistics } from './GraphStatistics'
 import { fieldClass } from '../ui'
 
@@ -23,6 +24,9 @@ interface SidebarProps {
   showDynamicLabels: boolean
   onShowLabels: (value: boolean) => void
   onShowDynamicLabels: (value: boolean) => void
+  showRelationLabels: boolean
+  onShowRelationLabels: (value: boolean) => void
+  onOpenManager: () => void
   onPause: () => void
   onResume: () => void
   onReheat: () => void
@@ -51,6 +55,9 @@ export function Sidebar({
   showDynamicLabels,
   onShowLabels,
   onShowDynamicLabels,
+  showRelationLabels,
+  onShowRelationLabels,
+  onOpenManager,
   onPause,
   onResume,
   onReheat,
@@ -87,9 +94,13 @@ export function Sidebar({
               </option>
             ))}
           </select>
+          <button type="button" className="w-full rounded-lg border border-white/10 px-3 py-2 text-left text-sm text-slate-100 hover:bg-white/5" onClick={onOpenManager}>
+            Manage KG datasets
+          </button>
           <ul className="space-y-1">
             {files.map((file) => (
               <li key={file.id} className="flex items-center gap-2 rounded-lg bg-white/5 px-2 py-1.5 text-xs">
+                {file.slot && <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: CATEGORY_BY_ID[file.slot].color }} />}
                 <span className="min-w-0 flex-1 truncate text-slate-200" title={file.name}>
                   {file.name}
                   <span className="text-slate-500"> · {file.triples.length.toLocaleString()}</span>
@@ -118,6 +129,26 @@ export function Sidebar({
               <span className="tabular-nums text-slate-500">{stats.categoryCounts[category.id].toLocaleString()}</span>
             </label>
           ))}
+          <div className="flex flex-wrap gap-1 pt-1">
+            {(
+              [
+                ['all', 'Show all'],
+                ['original', 'Original only'],
+                ['reconciled', 'Reconciled only'],
+                ['cross', 'Cross-KG only'],
+                ['within', 'Within-KG only'],
+              ] as [ViewPreset, string][]
+            ).map(([preset, label]) => (
+              <button
+                key={preset}
+                type="button"
+                className="rounded-full border border-white/10 px-2 py-1 text-xs text-slate-200 hover:bg-white/10"
+                onClick={() => onChange(viewPresetPatch(preset))}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           <div className="grid grid-cols-1 gap-1 pt-1 text-sm text-slate-200">
             <label className="flex items-center gap-2">
               <input type="checkbox" checked={filters.showOriginal} onChange={() => onChange({ showOriginal: !filters.showOriginal })} />
@@ -327,6 +358,10 @@ export function Sidebar({
           <label className="flex items-center gap-2 text-sm text-slate-200">
             <input type="checkbox" checked={showLabels} onChange={() => onShowLabels(!showLabels)} />
             Show labels
+          </label>
+          <label className="flex items-center gap-2 text-sm text-slate-200">
+            <input type="checkbox" checked={showRelationLabels} onChange={() => onShowRelationLabels(!showRelationLabels)} />
+            Show relation labels
           </label>
           <label className="flex items-center gap-2 text-sm text-slate-200">
             <input type="checkbox" checked={showDynamicLabels} onChange={() => onShowDynamicLabels(!showDynamicLabels)} />

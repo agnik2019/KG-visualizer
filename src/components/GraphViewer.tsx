@@ -1,6 +1,11 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import { Cosmograph, usePreparedCosmographData, type CosmographConfig, type CosmographDataPrepConfig, type CosmographRef } from '@cosmograph/react'
 import type { GraphLink, GraphNode, LayoutSettings, Selection } from '../types/graph'
+import { CATEGORY_BY_ID } from '../utils/colors'
+import { evidenceQuotes } from '../utils/context'
+import { formatConfidence } from '../utils/format'
+import { LINK_CURVE } from '../utils/linkLabels'
+import { RelationLabelOverlay } from './RelationLabelOverlay'
 
 const DATA_CONFIG: CosmographDataPrepConfig = {
   points: {
@@ -31,6 +36,7 @@ interface GraphViewerProps {
   layout: LayoutSettings
   showLabels: boolean
   showDynamicLabels: boolean
+  showRelationLabels: boolean
   selection: Selection
   hop: 0 | 1 | 2
   focusNonce: number
@@ -64,7 +70,7 @@ function colorFromColumn(value: unknown): string {
 }
 
 export const GraphViewer = forwardRef<GraphHandle, GraphViewerProps>(function GraphViewer(
-  { nodes, links, layout, showLabels, showDynamicLabels, selection, hop, focusNonce, onSelectNode, onSelectLink, onClearSelection },
+  { nodes, links, layout, showLabels, showDynamicLabels, showRelationLabels, selection, hop, focusNonce, onSelectNode, onSelectLink, onClearSelection },
   ref,
 ) {
   const cosmographRef = useRef<CosmographRef>(undefined)
@@ -73,9 +79,16 @@ export const GraphViewer = forwardRef<GraphHandle, GraphViewerProps>(function Gr
   const onSelectNodeRef = useRef(onSelectNode)
   const onSelectLinkRef = useRef(onSelectLink)
   const onClearSelectionRef = useRef(onClearSelection)
+  const fullLinksRef = useRef<GraphLink[]>([])
+  const indexByIdRef = useRef(new Map<string, number>())
+  const tooltipRef = useRef<HTMLDivElement>(null)
+  const pointerRef = useRef({ x: 16, y: 16 })
+  const hoverClearRef = useRef<number>(0)
   const [mountedTick, setMountedTick] = useState(0)
   const [stableConfig, setStableConfig] = useState<CosmographConfig | null>(null)
+  const [hoveredLinkId, setHoveredLinkId] = useState<string | null>(null)
   const zoomedNonce = useRef(0)
+  fullLinksRef.current = links
 
   onSelectNodeRef.current = onSelectNode
   onSelectLinkRef.current = onSelectLink
@@ -104,6 +117,27 @@ export const GraphViewer = forwardRef<GraphHandle, GraphViewerProps>(function Gr
   useEffect(() => {
     if (prepared.config.points) setStableConfig(prepared.config)
   }, [prepared.config])
+
+  useEffect(() => {
+    let cancelled = false
+    const graph = cosmographRef.current
+    if (!graph || !stableConfig || mountedTick === 0) return
+    void (async () => {
+      await graph.dataUploaded()
+      if (cancelled) return
+      const indices = await graph.getPointIndicesByIds(pointsRef.current.map((point) => point.id))
+      if (cancelled || !indices) return
+      const map = new Map<string, number>()
+      pointsRef.current.forEach((point, index) => {
+        const resolved = indices[index]
+        if (resolved != null && resolved >= 0) map.set(point.id, resolved)
+      })
+      indexByIdRef.current = map
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [stableConfig, mountedTick, points])
 
   useImperativeHandle(ref, () => ({
     fit: () => cosmographRef.current?.fitView(450, 0.14),
@@ -178,8 +212,32 @@ export const GraphViewer = forwardRef<GraphHandle, GraphViewerProps>(function Gr
     }
   }, [stableConfig, mountedTick, selection, hop, focusNonce])
 
+  const hoveredLink = hoveredLinkId ? (links.find((link) => link.id === hoveredLinkId) ?? null) : null
+  const hoverQuote = hoveredLink ? (evidenceQuotes(hoveredLink.triple.raw)[0] ?? '') : ''
+
+  const moveTooltip = (clientX: number, clientY: number, bounds: DOMRect) => {
+    const x = Math.min(Math.max(8, clientX - bounds.left + 14), Math.max(8, bounds.width - 280))
+    const y = Math.min(Math.max(8, clientY - bounds.top + 16), Math.max(8, bounds.height - 120))
+    pointerRef.current = { x, y }
+    const tooltip = tooltipRef.current
+    if (!tooltip) return
+    tooltip.style.left = `${x}px`
+    tooltip.style.top = `${y}px`
+  }
+
+  useEffect(() => {
+    const tooltip = tooltipRef.current
+    if (!tooltip) return
+    tooltip.style.left = `${pointerRef.current.x}px`
+    tooltip.style.top = `${pointerRef.current.y}px`
+  }, [hoveredLinkId])
+
   return (
-    <div className="absolute inset-0" data-testid="graph-canvas">
+    <div
+      className="absolute inset-0"
+      data-testid="graph-canvas"
+      onPointerMove={(event) => moveTooltip(event.clientX, event.clientY, event.currentTarget.getBoundingClientRect())}
+    >
       {stableConfig ? (
         <Cosmograph
           ref={cosmographRef}
@@ -191,7 +249,8 @@ export const GraphViewer = forwardRef<GraphHandle, GraphViewerProps>(function Gr
           linkArrowsSizeScale={1.25}
           curvedLinks
           curvedLinkSegments={8}
-          curvedLinkWeight={0.4}
+          curvedLinkWeight={LINK_CURVE.weight}
+          curvedLinkControlPointDistance={LINK_CURVE.controlDistance}
           pointSizeStrategy="preciseDegree"
           pointSizeRange={[3, 16]}
           linkWidthStrategy="direct"
@@ -220,10 +279,56 @@ export const GraphViewer = forwardRef<GraphHandle, GraphViewerProps>(function Gr
           onPointClick={handlePointClick}
           onLinkClick={handleLinkClick}
           onBackgroundClick={handleBackgroundClick}
+          onLinkMouseOver={(index) => {
+            window.clearTimeout(hoverClearRef.current)
+            const link = fullLinksRef.current[index]
+            if (link) setHoveredLinkId(link.id)
+          }}
+          onLinkMouseOut={() => {
+            window.clearTimeout(hoverClearRef.current)
+            hoverClearRef.current = window.setTimeout(() => setHoveredLinkId(null), 80)
+          }}
           onMount={() => setMountedTick((value) => value + 1)}
           style={{ width: '100%', height: '100%' }}
         />
       ) : null}
+      <RelationLabelOverlay
+        graphRef={cosmographRef}
+        linksRef={fullLinksRef}
+        indexByIdRef={indexByIdRef}
+        enabled={showRelationLabels && links.length > 0 && Boolean(stableConfig)}
+        selectedLinkId={selection?.kind === 'link' ? selection.id : null}
+        selectedNodeId={selection?.kind === 'node' ? selection.id : null}
+        hoveredLinkId={hoveredLinkId}
+        onSelectLink={onSelectLink}
+        onHoverLink={(id) => {
+          window.clearTimeout(hoverClearRef.current)
+          setHoveredLinkId(id)
+        }}
+      />
+      {hoveredLink && (
+        <div
+          ref={tooltipRef}
+          className="pointer-events-none absolute z-20 w-64 rounded-xl border border-white/10 bg-slate-950/95 p-3 text-xs shadow-2xl"
+          data-testid="edge-tooltip"
+        >
+          <div className="font-medium text-slate-100">
+            {hoveredLink.triple.head}
+            <span className="text-slate-500"> → </span>
+            <span style={{ color: hoveredLink.color }}>{hoveredLink.relation}</span>
+            <span className="text-slate-500"> → </span>
+            {hoveredLink.triple.tail}
+          </div>
+          <div className="mt-1.5 flex items-center gap-2 text-slate-300">
+            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: hoveredLink.color }} />
+            {CATEGORY_BY_ID[hoveredLink.category].label}
+          </div>
+          {hoveredLink.triple.extractionConfidence != null && (
+            <div className="mt-1 text-slate-400">Confidence {formatConfidence(hoveredLink.triple.extractionConfidence)}</div>
+          )}
+          {hoverQuote && <p className="mt-1.5 line-clamp-3 text-slate-300">“{hoverQuote}”</p>}
+        </div>
+      )}
       {(prepared.isLoading || !stableConfig) && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
           <div className="rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-3 text-sm text-slate-200 shadow-xl">

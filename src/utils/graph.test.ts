@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { parseKnowledgeCsv } from './csvParser'
+import { evidenceQuotes, highlightQuotes } from './context'
 import { classifyRelationship, inferFileHint } from './colors'
 import { buildGraph } from './graphTransformer'
 import { applyFilters, defaultFilters } from './filterGraph'
@@ -136,17 +137,22 @@ describe('parseKnowledgeCsv', () => {
     expect(theory.errors).toEqual([])
     expect(practice.errors).toEqual([])
     expect(theory.triples).toHaveLength(1956)
-    expect(practice.triples).toHaveLength(4)
+    expect(practice.triples).toHaveLength(12)
     expect(new Set(theory.triples.map((triple) => triple.category))).toEqual(new Set(['original-theory']))
     expect(new Set(practice.triples.map((triple) => triple.category))).toEqual(new Set(['original-practice']))
     expect(theory.triples.every((triple) => triple.color === '#8B5CF6')).toBe(true)
     expect(practice.triples.every((triple) => triple.color === '#22C55E')).toBe(true)
     expect(practice.triples.every((triple) => triple.headNodeId.startsWith('Practice::'))).toBe(true)
     expect(theory.triples[0].raw.verification_explanation.length).toBeGreaterThan(20)
-    expect(practice.triples[0].raw.ep_title).toContain('Marketing')
+    expect(practice.triples.every((triple) => triple.raw.context.trim().length > 20)).toBe(true)
+    expect(practice.triples.every((triple) => triple.raw.pod_title.trim().length > 0)).toBe(true)
+    const highlighted = practice.triples.filter((triple) =>
+      highlightQuotes(triple.raw.context, evidenceQuotes(triple.raw)).segments.some((segment) => segment.match),
+    )
+    expect(highlighted.length).toBeGreaterThanOrEqual(10)
 
     const graph = buildGraph([...theory.triples, ...practice.triples])
-    expect(graph.links).toHaveLength(1960)
+    expect(graph.links).toHaveLength(1968)
     expect(graph.nodes.some((node) => node.id.startsWith('Theory::'))).toBe(true)
     expect(graph.nodes.some((node) => node.id.startsWith('Practice::'))).toBe(true)
   })

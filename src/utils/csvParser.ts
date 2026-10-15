@@ -1,18 +1,33 @@
 import Papa from 'papaparse'
-import type { FileHint, Triple } from '../types/graph'
-import { classifyRelationship } from './colors'
-import { nodeIdFor } from './colors'
+import type { EdgeCategory, FileHint, Triple } from '../types/graph'
+import { CATEGORY_BY_ID, classificationForSlot, classifyRelationship, kgDisplay, nodeIdFor, slotConflictReasons, slotProfile, type SlotProfile } from './colors'
 
 export interface ParseOptions {
   fileId: string
   fileName: string
   fileHint: FileHint
+  /** Dedicated upload slot. Classification comes from the slot, not the filename. */
+  slot?: Exclude<EdgeCategory, 'unknown'>
+  /**
+   * `hold` omits rows whose provenance disagrees with the slot.
+   * `apply-slot` writes the slot category onto those rows after the user confirms it.
+   */
+  slotConflictPolicy?: 'hold' | 'apply-slot'
+}
+
+export interface RowConflict {
+  row: number
+  head: string
+  relation: string
+  tail: string
+  reasons: string[]
 }
 
 export interface ParseResult {
   triples: Triple[]
   errors: string[]
   warnings: string[]
+  conflicts: RowConflict[]
 }
 
 const REQUIRED = ['head', 'relation', 'tail'] as const
@@ -46,6 +61,7 @@ export function parseKnowledgeCsv(csvText: string, options: ParseOptions): Parse
       triples: [],
       errors: [`${options.fileName} is not a CSV file.`],
       warnings: [],
+      conflicts: [],
     }
   }
 
@@ -68,10 +84,14 @@ export function parseKnowledgeCsv(csvText: string, options: ParseOptions): Parse
       triples: [],
       errors: [`${options.fileName} is missing required columns: ${missing.join(', ')}.`],
       warnings: [],
+      conflicts: [],
     }
   }
 
   const warnings: string[] = []
+  const conflicts: RowConflict[] = []
+  const slot = options.slot ? slotProfile(options.slot) : null
+  const applyConflicts = options.slotConflictPolicy === 'apply-slot'
   const fatal = parsed.errors.filter((error) => error.type === 'Quotes' || error.type === 'FieldMismatch')
   if (fatal.length > 0) {
     const sample = fatal
@@ -99,14 +119,26 @@ export function parseKnowledgeCsv(csvText: string, options: ParseOptions): Parse
     }
 
     const colorCode = cell(row, columns, 'color_code') || cell(row, columns, 'color-code')
-    const classification = classifyRelationship({
+    const provenance = {
       kgCategory: cell(row, columns, 'kg_category'),
       headKg: cell(row, columns, 'head_kg'),
       tailKg: cell(row, columns, 'tail_kg'),
       edgeOrigin: cell(row, columns, 'edge_origin'),
-      colorCode,
-      fileHint: options.fileHint,
-    })
+    }
+    const reasons = slot ? slotConflictReasons(provenance, slot) : []
+    if (slot && reasons.length > 0 && !applyConflicts) {
+      conflicts.push({ row: index + 2, head, relation, tail, reasons })
+      return
+    }
+    const classification = slot
+      ? classificationForSlot(slot, colorCode)
+      : classifyRelationship({
+          ...provenance,
+          colorCode,
+          fileHint: options.fileHint,
+        })
+    const raw = rawRecord(row)
+    if (slot) stampSlot(raw, slot, options.fileName, reasons.length > 0)
 
     let id = cell(row, columns, 'triple_id') || `${options.fileId}:${index + 1}`
     if (seenIds.has(id)) id = `${id}::${options.fileId}:${index + 1}`
@@ -133,16 +165,38 @@ export function parseKnowledgeCsv(csvText: string, options: ParseOptions): Parse
       verificationStatus: cell(row, columns, 'verification_status'),
       fileId: options.fileId,
       fileName: options.fileName,
-      raw: rawRecord(row),
+      raw,
     })
   })
 
   if (skipped > 0) {
     warnings.push(`${options.fileName}: skipped ${skipped} row${skipped === 1 ? '' : 's'} missing head, relation, or tail.`)
   }
-  if (triples.length === 0 && skipped === 0) {
+  if (conflicts.length > 0) {
+    warnings.push(
+      `${options.fileName}: ${conflicts.length} row${conflicts.length === 1 ? '' : 's'} conflict with the selected upload slot and were not loaded.`,
+    )
+  }
+  if (triples.length === 0 && skipped === 0 && conflicts.length === 0) {
     warnings.push(`${options.fileName} did not contain any data rows.`)
   }
 
-  return { triples, errors: [], warnings }
+  return { triples, errors: [], warnings, conflicts }
+}
+
+function writeField(raw: Record<string, string>, key: string, value: string, overwrite: boolean): void {
+  const existing = Object.keys(raw).find((header) => header.toLowerCase() === key)
+  const target = existing ?? key
+  if (overwrite || !raw[target]?.trim()) raw[target] = value
+}
+
+function stampSlot(raw: Record<string, string>, slot: SlotProfile, fileName: string, overwrite: boolean): void {
+  const meta = CATEGORY_BY_ID[slot.category]
+  writeField(raw, 'kg_category', meta.label, overwrite)
+  writeField(raw, 'edge_origin', slot.origin, overwrite)
+  writeField(raw, 'head_kg', kgDisplay(slot.headKg), overwrite)
+  writeField(raw, 'tail_kg', kgDisplay(slot.tailKg), overwrite)
+  const colorHeader = Object.keys(raw).find((header) => header.toLowerCase() === 'color_code' || header.toLowerCase() === 'color-code')
+  if (!colorHeader || !raw[colorHeader]?.trim()) raw.color_code = meta.color
+  raw.source_file = fileName
 }
