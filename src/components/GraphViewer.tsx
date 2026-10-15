@@ -119,6 +119,12 @@ export const GraphViewer = forwardRef<GraphHandle, GraphViewerProps>(function Gr
   }, [prepared.config])
 
   useEffect(() => {
+    const map = new Map<string, number>()
+    points.forEach((point, index) => map.set(point.id, index))
+    indexByIdRef.current = map
+  }, [points])
+
+  useEffect(() => {
     let cancelled = false
     const graph = cosmographRef.current
     if (!graph || !stableConfig || mountedTick === 0) return
@@ -132,7 +138,7 @@ export const GraphViewer = forwardRef<GraphHandle, GraphViewerProps>(function Gr
         const resolved = indices[index]
         if (resolved != null && resolved >= 0) map.set(point.id, resolved)
       })
-      indexByIdRef.current = map
+      if (map.size === pointsRef.current.length) indexByIdRef.current = map
     })()
     return () => {
       cancelled = true
